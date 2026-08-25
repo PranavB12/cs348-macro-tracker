@@ -2,7 +2,7 @@
 
 CS348 project — a database-backed macro/calorie tracking web app.
 
-**Stack:** React (Vite) frontend, FastAPI backend, MySQL database (added in later stages).
+**Stack:** React frontend, FastAPI backend, MySQL database (added in later stages).
 
 ## Stage 1 status
 Hello world running end-to-end: React frontend fetches a message from the FastAPI backend.
@@ -13,7 +13,7 @@ Hello world running end-to-end: React frontend fetches a message from the FastAP
 ```bash
 cd backend
 python3 -m venv venv
-source venv/bin/activate       # on Windows: venv\Scripts\activate
+source venv/bin/activate      
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
