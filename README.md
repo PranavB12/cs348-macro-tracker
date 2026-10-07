@@ -2,10 +2,12 @@
 
 CS348 project — a database-backed macro/calorie tracking web app.
 
-**Stack:** React frontend, FastAPI backend, MySQL database (added in later stages).
+**Stack:** React frontend, FastAPI backend, SQLite database for the Stage 2 demo. The relational schema is documented in `docs/stage2-deliverables.md` and maps directly to MySQL.
 
-## Stage 1 status
-Hello world running end-to-end: React frontend fetches a message from the FastAPI backend.
+## Stage 2 workflow
+The app lets you add, edit, and delete food log entries, then report logged nutrition by date and per-entry calorie range. The food selector is populated from the `foods` database table. The backend creates `backend/macro_tracker.db` and seeds the food catalog the first time it starts.
+
+The database design and an approximately 8-minute demo script are in [docs/stage2-deliverables.md](docs/stage2-deliverables.md). The Stage 1 requirement statements were not present in this repository; the demo maps Requirement 1 to food log CRUD and Requirement 2 to filtered nutrition reports.
 
 ## Running locally
 
