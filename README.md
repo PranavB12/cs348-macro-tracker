@@ -7,7 +7,7 @@ CS348 project — a database-backed macro/calorie tracking web app.
 ## Stage 2 workflow
 The app lets you add, edit, and delete food log entries, then report logged nutrition by date and per-entry calorie range. The food selector is populated from the `foods` database table. The backend creates `backend/macro_tracker.db` and seeds the food catalog the first time it starts.
 
-The database design and an approximately 8-minute demo script are in [docs/stage2-deliverables.md](docs/stage2-deliverables.md). The Stage 1 requirement statements were not present in this repository; the demo maps Requirement 1 to food log CRUD and Requirement 2 to filtered nutrition reports.
+The database design and an approximately 8-minute demo script are in [docs/stage2-deliverables.md](docs/stage2-deliverables.md). Stage 1 covered stack setup and a Hello World page; Stage 2 adds the CRUD, report, and database-driven selector demonstrations.
 
 ## Running locally
 
