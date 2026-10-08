@@ -1,15 +1,23 @@
 import os
-import sqlite3
-from contextlib import closing
+from contextlib import contextmanager
 from datetime import date
-from pathlib import Path
 
+import pymysql
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 
-DATABASE_PATH = Path(os.getenv("DATABASE_PATH", Path(__file__).with_name("macro_tracker.db")))
+DATABASE_CONFIG = {
+    "host": os.getenv("MYSQL_HOST", "127.0.0.1"),
+    "port": int(os.getenv("MYSQL_PORT", "3306")),
+    "user": os.getenv("MYSQL_USER", "root"),
+    "password": os.getenv("MYSQL_PASSWORD", ""),
+    "database": os.getenv("MYSQL_DATABASE", "macro_tracker"),
+    "charset": "utf8mb4",
+    "cursorclass": pymysql.cursors.DictCursor,
+    "autocommit": False,
+}
 SEED_FOODS = [
     ("Oats", 150, 5.0, 27.0, 3.0),
     ("Greek yogurt", 100, 17.0, 6.0, 0.0),
@@ -20,44 +28,63 @@ SEED_FOODS = [
 ]
 
 
+class Database:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, sql, params=()):
+        cursor = self.connection.cursor()
+        cursor.execute(sql, params)
+        return cursor
+
+    def executemany(self, sql, params):
+        cursor = self.connection.cursor()
+        cursor.executemany(sql, params)
+        return cursor
+
+    def commit(self):
+        self.connection.commit()
+
+
+@contextmanager
 def connect():
-    connection = sqlite3.connect(DATABASE_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    connection = pymysql.connect(**DATABASE_CONFIG)
+    try:
+        yield Database(connection)
+    finally:
+        connection.close()
 
 
 def initialize_database():
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with closing(connect()) as db:
-        db.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS foods (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                calories REAL NOT NULL CHECK (calories >= 0),
-                protein_g REAL NOT NULL CHECK (protein_g >= 0),
-                carbs_g REAL NOT NULL CHECK (carbs_g >= 0),
-                fat_g REAL NOT NULL CHECK (fat_g >= 0)
-            );
-            CREATE TABLE IF NOT EXISTS food_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                food_id INTEGER NOT NULL REFERENCES foods(id),
-                entry_date TEXT NOT NULL,
-                servings REAL NOT NULL CHECK (servings > 0),
-                calories REAL NOT NULL CHECK (calories >= 0),
-                protein_g REAL NOT NULL CHECK (protein_g >= 0),
-                carbs_g REAL NOT NULL CHECK (carbs_g >= 0),
-                fat_g REAL NOT NULL CHECK (fat_g >= 0),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_food_entries_date ON food_entries(entry_date);
-            """
+    with connect() as db:
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS foods (
+                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(120) NOT NULL UNIQUE,
+                calories DECIMAL(10,2) NOT NULL CHECK (calories >= 0),
+                protein_g DECIMAL(10,2) NOT NULL CHECK (protein_g >= 0),
+                carbs_g DECIMAL(10,2) NOT NULL CHECK (carbs_g >= 0),
+                fat_g DECIMAL(10,2) NOT NULL CHECK (fat_g >= 0)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
-        count = db.execute("SELECT COUNT(*) FROM foods").fetchone()[0]
-        if count == 0:
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS food_entries (
+                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                food_id INT NOT NULL,
+                entry_date DATE NOT NULL,
+                servings DECIMAL(8,2) NOT NULL CHECK (servings > 0),
+                calories DECIMAL(10,2) NOT NULL CHECK (calories >= 0),
+                protein_g DECIMAL(10,2) NOT NULL CHECK (protein_g >= 0),
+                carbs_g DECIMAL(10,2) NOT NULL CHECK (carbs_g >= 0),
+                fat_g DECIMAL(10,2) NOT NULL CHECK (fat_g >= 0),
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_food_entries_food FOREIGN KEY (food_id) REFERENCES foods(id),
+                INDEX idx_food_entries_date (entry_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+        )
+        if db.execute("SELECT COUNT(*) AS count FROM foods").fetchone()["count"] == 0:
             db.executemany(
-                "INSERT INTO foods (name, calories, protein_g, carbs_g, fat_g) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO foods (name, calories, protein_g, carbs_g, fat_g) VALUES (%s, %s, %s, %s, %s)",
                 SEED_FOODS,
             )
         db.commit()
@@ -90,12 +117,12 @@ def hello_world():
 
 @app.get("/api/foods")
 def list_foods():
-    with closing(connect()) as db:
-        return [dict(row) for row in db.execute("SELECT * FROM foods ORDER BY name")]
+    with connect() as db:
+        return db.execute("SELECT * FROM foods ORDER BY name").fetchall()
 
 
 def entry_values(db, payload: EntryInput):
-    food = db.execute("SELECT * FROM foods WHERE id = ?", (payload.food_id,)).fetchone()
+    food = db.execute("SELECT * FROM foods WHERE id = %s", (payload.food_id,)).fetchone()
     if food is None:
         raise HTTPException(status_code=404, detail="Food not found")
     servings = payload.servings
@@ -103,41 +130,42 @@ def entry_values(db, payload: EntryInput):
         payload.food_id,
         payload.entry_date.isoformat(),
         servings,
-        *(round(food[key] * servings, 2) for key in ("calories", "protein_g", "carbs_g", "fat_g")),
+        *(round(float(food[key]) * servings, 2) for key in ("calories", "protein_g", "carbs_g", "fat_g")),
     )
 
 
 @app.post("/api/entries", status_code=201)
 def create_entry(payload: EntryInput):
-    with closing(connect()) as db:
+    with connect() as db:
         values = entry_values(db, payload)
         cursor = db.execute(
             "INSERT INTO food_entries (food_id, entry_date, servings, calories, protein_g, carbs_g, fat_g) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)", values
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)", values
         )
+        entry_id = cursor.lastrowid
         db.commit()
-        return dict(db.execute("SELECT * FROM food_entries WHERE id = ?", (cursor.lastrowid,)).fetchone())
+        return db.execute("SELECT * FROM food_entries WHERE id = %s", (entry_id,)).fetchone()
 
 
 @app.put("/api/entries/{entry_id}")
 def update_entry(entry_id: int, payload: EntryInput):
-    with closing(connect()) as db:
-        if db.execute("SELECT id FROM food_entries WHERE id = ?", (entry_id,)).fetchone() is None:
+    with connect() as db:
+        if db.execute("SELECT id FROM food_entries WHERE id = %s", (entry_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="Entry not found")
         values = entry_values(db, payload)
         db.execute(
-            "UPDATE food_entries SET food_id = ?, entry_date = ?, servings = ?, calories = ?, "
-            "protein_g = ?, carbs_g = ?, fat_g = ? WHERE id = ?",
+            "UPDATE food_entries SET food_id = %s, entry_date = %s, servings = %s, calories = %s, "
+            "protein_g = %s, carbs_g = %s, fat_g = %s WHERE id = %s",
             (*values, entry_id),
         )
         db.commit()
-        return dict(db.execute("SELECT * FROM food_entries WHERE id = ?", (entry_id,)).fetchone())
+        return db.execute("SELECT * FROM food_entries WHERE id = %s", (entry_id,)).fetchone()
 
 
 @app.delete("/api/entries/{entry_id}", status_code=204)
 def delete_entry(entry_id: int):
-    with closing(connect()) as db:
-        cursor = db.execute("DELETE FROM food_entries WHERE id = ?", (entry_id,))
+    with connect() as db:
+        cursor = db.execute("DELETE FROM food_entries WHERE id = %s", (entry_id,))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Entry not found")
         db.commit()
@@ -154,16 +182,16 @@ def report(
         raise HTTPException(status_code=422, detail="Start date must be on or before end date")
     if min_calories > max_calories:
         raise HTTPException(status_code=422, detail="Minimum calories must be at most maximum calories")
-    with closing(connect()) as db:
+    with connect() as db:
         rows = db.execute(
             "SELECT e.*, f.name AS food_name FROM food_entries e JOIN foods f ON f.id = e.food_id "
-            "WHERE e.entry_date BETWEEN ? AND ? AND e.calories BETWEEN ? AND ? "
+            "WHERE e.entry_date BETWEEN %s AND %s AND e.calories BETWEEN %s AND %s "
             "ORDER BY e.entry_date, e.id",
             (start_date.isoformat(), end_date.isoformat(), min_calories, max_calories),
         ).fetchall()
     entries = [dict(row) for row in rows]
     totals = {
-        key: round(sum(entry[key] for entry in entries), 2)
+        key: round(sum(float(entry[key]) for entry in entries), 2)
         for key in ("calories", "protein_g", "carbs_g", "fat_g")
     }
     return {"entries": entries, "totals": totals, "count": len(entries)}

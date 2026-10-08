@@ -6,34 +6,34 @@ Stage 1 established the React/Vite and FastAPI stack and a working web page. Sta
 
 ## Database design
 
-The demo runs on SQLite so it starts without a separate database server. The schema uses standard relational concepts and can be translated directly to MySQL (`INTEGER PRIMARY KEY AUTOINCREMENT` becomes `INT AUTO_INCREMENT PRIMARY KEY`; `REAL` becomes an appropriate `DECIMAL`). The live schema is initialized in `backend/main.py` by `initialize_database()`.
+The app uses MySQL with InnoDB tables. Create the `macro_tracker` database as described in the README; `initialize_database()` in `backend/main.py` creates the tables and inserts the initial food catalog when empty. The connection reads `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_DATABASE` from the environment.
 
 ### `foods`
 
 | Column | Type | Constraints | Purpose |
 | --- | --- | --- | --- |
-| `id` | integer | PK, auto increment | Food identifier |
-| `name` | text | NOT NULL, UNIQUE | Food name used by the selector |
-| `calories` | real | NOT NULL, >= 0 | kcal per serving |
-| `protein_g` | real | NOT NULL, >= 0 | Protein per serving |
-| `carbs_g` | real | NOT NULL, >= 0 | Carbohydrates per serving |
-| `fat_g` | real | NOT NULL, >= 0 | Fat per serving |
+| `id` | INT | PK, AUTO_INCREMENT | Food identifier |
+| `name` | VARCHAR(120) | NOT NULL, UNIQUE | Food name used by the selector |
+| `calories` | DECIMAL(10,2) | NOT NULL, >= 0 | kcal per serving |
+| `protein_g` | DECIMAL(10,2) | NOT NULL, >= 0 | Protein per serving |
+| `carbs_g` | DECIMAL(10,2) | NOT NULL, >= 0 | Carbohydrates per serving |
+| `fat_g` | DECIMAL(10,2) | NOT NULL, >= 0 | Fat per serving |
 
 ### `food_entries`
 
 | Column | Type | Constraints | Purpose |
 | --- | --- | --- | --- |
-| `id` | integer | PK, auto increment | Log entry identifier |
-| `food_id` | integer | NOT NULL, FK -> `foods.id` | Selected catalog food |
-| `entry_date` | text / date | NOT NULL | Day the food was consumed (ISO date) |
-| `servings` | real / decimal | NOT NULL, > 0 | Number of catalog servings |
-| `calories` | real / decimal | NOT NULL, >= 0 | Nutrition snapshot for this entry |
-| `protein_g` | real / decimal | NOT NULL, >= 0 | Nutrition snapshot for this entry |
-| `carbs_g` | real / decimal | NOT NULL, >= 0 | Nutrition snapshot for this entry |
-| `fat_g` | real / decimal | NOT NULL, >= 0 | Nutrition snapshot for this entry |
-| `created_at` | timestamp | NOT NULL, default current timestamp | Audit timestamp |
+| `id` | INT | PK, AUTO_INCREMENT | Log entry identifier |
+| `food_id` | INT | NOT NULL, FK -> `foods.id` | Selected catalog food |
+| `entry_date` | DATE | NOT NULL | Day the food was consumed |
+| `servings` | DECIMAL(8,2) | NOT NULL, > 0 | Number of catalog servings |
+| `calories` | DECIMAL(10,2) | NOT NULL, >= 0 | Nutrition snapshot for this entry |
+| `protein_g` | DECIMAL(10,2) | NOT NULL, >= 0 | Nutrition snapshot for this entry |
+| `carbs_g` | DECIMAL(10,2) | NOT NULL, >= 0 | Nutrition snapshot for this entry |
+| `fat_g` | DECIMAL(10,2) | NOT NULL, >= 0 | Nutrition snapshot for this entry |
+| `created_at` | TIMESTAMP | NOT NULL, default current timestamp | Audit timestamp |
 
-Relationship: one food can appear in many food entries (`foods.id` -> `food_entries.food_id`). A log entry stores calculated nutrition values when created or updated, preserving past reports if a catalog value changes later. An index on `food_entries.entry_date` supports date-range reports.
+Relationship: one food can appear in many food entries (`foods.id` -> `food_entries.food_id`). A log entry stores calculated nutrition values when created or updated, preserving past reports if a catalog value changes later. An index on `food_entries.entry_date` supports date-range reports. Both tables use the InnoDB storage engine so foreign-key constraints are enforced.
 
 ## Demo run of show (about 8 minutes)
 
