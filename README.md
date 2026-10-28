@@ -15,17 +15,17 @@ The database design and an approximately 8-minute demo script are in [docs/stage
 ```bash
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS macro_tracker CHARACTER SET utf8mb4"
 cd backend
-python3 -m venv venv
-source venv/bin/activate      
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 export MYSQL_HOST=127.0.0.1
 export MYSQL_PORT=3306
 export MYSQL_USER=root
-export MYSQL_PASSWORD="your-mysql-password"
+export MYSQL_PASSWORD="your actual MySQL root password"
 export MYSQL_DATABASE=macro_tracker
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
 ```
-Replace `root` and the password with the MySQL account you use locally. If that account has no password, set `MYSQL_PASSWORD=""`. Backend runs at http://localhost:8000.
+Replace `root` and the password with the MySQL account you use locally. Do not enter the example phrase literally. To check your credentials, run `mysql -h 127.0.0.1 -u root -p macro_tracker -e "SELECT 1"` and enter the password at the prompt. If your local account has no password, set `MYSQL_PASSWORD=""`. Backend runs at http://localhost:8000.
 
 ### Frontend
 ```bash
