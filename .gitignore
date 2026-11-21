@@ -7,3 +7,6 @@ __pycache__/
 *.db
 .env
 .DS_Store
+docs/
+!docs/
+!docs/stage3-deliverables.md

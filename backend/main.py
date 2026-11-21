@@ -17,6 +17,9 @@ DATABASE_CONFIG = {
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor,
     "autocommit": False,
+    # Make concurrent report reads see committed data while writers serialize
+    # changes to the same entry through InnoDB row locks.
+    "init_command": "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED",
 }
 SEED_FOODS = [
     ("Oats", 150, 5.0, 27.0, 3.0),
@@ -44,6 +47,17 @@ class Database:
 
     def commit(self):
         self.connection.commit()
+
+    @contextmanager
+    def transaction(self):
+        """Commit a complete write or roll the whole operation back."""
+        self.connection.begin()
+        try:
+            yield
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
 
 
 @contextmanager
@@ -79,9 +93,15 @@ def initialize_database():
                 fat_g DECIMAL(10,2) NOT NULL CHECK (fat_g >= 0),
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 CONSTRAINT fk_food_entries_food FOREIGN KEY (food_id) REFERENCES foods(id),
-                INDEX idx_food_entries_date (entry_date)
+                INDEX idx_food_entries_date (entry_date),
+                INDEX idx_food_entries_date_calories (entry_date, calories)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
+        # CREATE TABLE IF NOT EXISTS does not change tables already created by
+        # Stage 2, so add the reporting index there as an idempotent migration.
+        existing_indexes = db.execute("SHOW INDEX FROM food_entries").fetchall()
+        if not any(index["Key_name"] == "idx_food_entries_date_calories" for index in existing_indexes):
+            db.execute("CREATE INDEX idx_food_entries_date_calories ON food_entries (entry_date, calories)")
         if db.execute("SELECT COUNT(*) AS count FROM foods").fetchone()["count"] == 0:
             db.executemany(
                 "INSERT INTO foods (name, calories, protein_g, carbs_g, fat_g) VALUES (%s, %s, %s, %s, %s)",
@@ -137,38 +157,38 @@ def entry_values(db, payload: EntryInput):
 @app.post("/api/entries", status_code=201)
 def create_entry(payload: EntryInput):
     with connect() as db:
-        values = entry_values(db, payload)
-        cursor = db.execute(
-            "INSERT INTO food_entries (food_id, entry_date, servings, calories, protein_g, carbs_g, fat_g) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)", values
-        )
-        entry_id = cursor.lastrowid
-        db.commit()
-        return db.execute("SELECT * FROM food_entries WHERE id = %s", (entry_id,)).fetchone()
+        with db.transaction():
+            values = entry_values(db, payload)
+            cursor = db.execute(
+                "INSERT INTO food_entries (food_id, entry_date, servings, calories, protein_g, carbs_g, fat_g) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)", values
+            )
+            entry_id = cursor.lastrowid
+            return db.execute("SELECT * FROM food_entries WHERE id = %s", (entry_id,)).fetchone()
 
 
 @app.put("/api/entries/{entry_id}")
 def update_entry(entry_id: int, payload: EntryInput):
     with connect() as db:
-        if db.execute("SELECT id FROM food_entries WHERE id = %s", (entry_id,)).fetchone() is None:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        values = entry_values(db, payload)
-        db.execute(
-            "UPDATE food_entries SET food_id = %s, entry_date = %s, servings = %s, calories = %s, "
-            "protein_g = %s, carbs_g = %s, fat_g = %s WHERE id = %s",
-            (*values, entry_id),
-        )
-        db.commit()
-        return db.execute("SELECT * FROM food_entries WHERE id = %s", (entry_id,)).fetchone()
+        with db.transaction():
+            if db.execute("SELECT id FROM food_entries WHERE id = %s", (entry_id,)).fetchone() is None:
+                raise HTTPException(status_code=404, detail="Entry not found")
+            values = entry_values(db, payload)
+            db.execute(
+                "UPDATE food_entries SET food_id = %s, entry_date = %s, servings = %s, calories = %s, "
+                "protein_g = %s, carbs_g = %s, fat_g = %s WHERE id = %s",
+                (*values, entry_id),
+            )
+            return db.execute("SELECT * FROM food_entries WHERE id = %s", (entry_id,)).fetchone()
 
 
 @app.delete("/api/entries/{entry_id}", status_code=204)
 def delete_entry(entry_id: int):
     with connect() as db:
-        cursor = db.execute("DELETE FROM food_entries WHERE id = %s", (entry_id,))
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Entry not found")
-        db.commit()
+        with db.transaction():
+            cursor = db.execute("DELETE FROM food_entries WHERE id = %s", (entry_id,))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Entry not found")
 
 
 @app.get("/api/report")
