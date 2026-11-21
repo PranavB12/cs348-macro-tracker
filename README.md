@@ -4,13 +4,13 @@ CS348 project — a database-backed macro/calorie tracking web app.
 
 **Stack:** React frontend, FastAPI backend, and MySQL.
 
-The app lets you add, edit, and delete food log entries, then report logged nutrition by date and per-entry calorie range. The food selector is populated from the MySQL `foods` table. The backend creates the tables and seeds the food catalog the first time it connects.
+The app lets you add, edit, and delete food log entries, then report logged nutrition by date and per-entry calorie range. The food selector is populated from the MySQL `foods` table. The backend creates the tables and seeds the food catalog and sample entry history when it connects to an empty database.
 
 ## Running locally
 
 ### Backend
 ```bash
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS macro_tracker CHARACTER SET utf8mb4"
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS macro_tracker_demo CHARACTER SET utf8mb4"
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
@@ -19,10 +19,12 @@ export MYSQL_HOST=127.0.0.1
 export MYSQL_PORT=3306
 export MYSQL_USER=root
 export MYSQL_PASSWORD="your actual MySQL root password"
-export MYSQL_DATABASE=macro_tracker
+export MYSQL_DATABASE=macro_tracker_demo
 python -m uvicorn main:app --reload
 ```
-Replace `root` and the password with the MySQL account you use locally. Do not enter the example phrase literally. To check your credentials, run `mysql -h 127.0.0.1 -u root -p macro_tracker -e "SELECT 1"` and enter the password at the prompt. If your local account has no password, set `MYSQL_PASSWORD=""`. Backend runs at http://localhost:8000.
+Replace `root` and the password with the MySQL account you use locally. Do not enter the example phrase literally. To check your credentials, run `mysql -h 127.0.0.1 -u root -p macro_tracker_demo -e "SELECT 1"` and enter the password at the prompt. If your local account has no password, set `MYSQL_PASSWORD=""`. Backend runs at http://localhost:8000.
+
+The default database is `macro_tracker_demo`. When the backend first connects to a database whose `food_entries` table is empty, it creates 1,000 sample entries spread across the past year. This gives the report and index demo a representative data set. The older `macro_tracker` database is preserved; set `MYSQL_DATABASE=macro_tracker` if you need to use it. MySQL chooses indexes based on estimated cost, so the larger sample makes the report index more likely to be selected but does not guarantee it for every query or filter range.
 
 ### Frontend
 ```bash

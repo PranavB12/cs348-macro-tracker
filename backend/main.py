@@ -1,6 +1,6 @@
 import os
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 
 import pymysql
 from fastapi import FastAPI, HTTPException, Query
@@ -13,7 +13,7 @@ DATABASE_CONFIG = {
     "port": int(os.getenv("MYSQL_PORT", "3306")),
     "user": os.getenv("MYSQL_USER", "root"),
     "password": os.getenv("MYSQL_PASSWORD", ""),
-    "database": os.getenv("MYSQL_DATABASE", "macro_tracker"),
+    "database": os.getenv("MYSQL_DATABASE", "macro_tracker_demo"),
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor,
     "autocommit": False,
@@ -29,6 +29,7 @@ SEED_FOODS = [
     ("Brown rice", 216, 5.0, 45.0, 1.8),
     ("Avocado", 160, 2.0, 9.0, 14.7),
 ]
+SEED_ENTRY_COUNT = 1000
 
 
 class Database:
@@ -109,7 +110,41 @@ def initialize_database():
                 "INSERT INTO foods (name, calories, protein_g, carbs_g, fat_g) VALUES (%s, %s, %s, %s, %s)",
                 SEED_FOODS,
             )
+        if db.execute("SELECT COUNT(*) AS count FROM food_entries").fetchone()["count"] == 0:
+            seed_demo_entries(db)
         db.commit()
+
+
+def seed_demo_entries(db):
+    """Populate an empty database with realistic report data for the demo."""
+    foods = db.execute(
+        "SELECT id, calories, protein_g, carbs_g, fat_g FROM foods ORDER BY id"
+    ).fetchall()
+    if not foods:
+        return
+
+    today = date.today()
+    entries = []
+    for index in range(SEED_ENTRY_COUNT):
+        food = foods[index % len(foods)]
+        servings = ((index % 4) + 1) * 0.5
+        entry_date = today - timedelta(days=index % 365)
+        entries.append(
+            (
+                food["id"],
+                entry_date.isoformat(),
+                servings,
+                *(round(float(food[key]) * servings, 2) for key in ("calories", "protein_g", "carbs_g", "fat_g")),
+            )
+        )
+
+    db.executemany(
+        "INSERT INTO food_entries (food_id, entry_date, servings, calories, protein_g, carbs_g, fat_g) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        entries,
+    )
+    # Refresh optimizer statistics so EXPLAIN has current cardinality estimates.
+    db.execute("ANALYZE TABLE food_entries").fetchall()
 
 
 class EntryInput(BaseModel):
