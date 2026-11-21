@@ -31,3 +31,7 @@ npm install
 npm run dev
 ```
 Frontend runs at http://localhost:5173
+
+## AI Usage
+
+OpenAI Codex was used only to assist with parts of the React frontend. All backend development and database changes were completed without AI assistance. I reviewed the frontend code to ensure it aligned with the project's requirements and existing functionality. The relevant code and changes are explained in the recorded presentation.

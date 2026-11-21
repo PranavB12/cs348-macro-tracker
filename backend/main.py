@@ -93,15 +93,17 @@ def initialize_database():
                 fat_g DECIMAL(10,2) NOT NULL CHECK (fat_g >= 0),
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 CONSTRAINT fk_food_entries_food FOREIGN KEY (food_id) REFERENCES foods(id),
-                INDEX idx_food_entries_date (entry_date),
                 INDEX idx_food_entries_date_calories (entry_date, calories)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         )
         # CREATE TABLE IF NOT EXISTS does not change tables already created by
-        # Stage 2, so add the reporting index there as an idempotent migration.
+        # Stage 2, so migrate existing indexes explicitly and idempotently.
         existing_indexes = db.execute("SHOW INDEX FROM food_entries").fetchall()
-        if not any(index["Key_name"] == "idx_food_entries_date_calories" for index in existing_indexes):
+        index_names = {index["Key_name"] for index in existing_indexes}
+        if "idx_food_entries_date_calories" not in index_names:
             db.execute("CREATE INDEX idx_food_entries_date_calories ON food_entries (entry_date, calories)")
+        if "idx_food_entries_date" in index_names:
+            db.execute("DROP INDEX idx_food_entries_date ON food_entries")
         if db.execute("SELECT COUNT(*) AS count FROM foods").fetchone()["count"] == 0:
             db.executemany(
                 "INSERT INTO foods (name, calories, protein_g, carbs_g, fat_g) VALUES (%s, %s, %s, %s, %s)",
